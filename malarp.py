@@ -5,6 +5,8 @@ import time
 import ipaddress
 import pyfiglet
 import os
+import nmap
+import netifaces
 
 # Available flags
 flags = {
@@ -18,11 +20,21 @@ flags = {
 options = [
     "ARP Spoofer",
     "ARP Table",
-    "Connected Machines"
+    "Connected Machines",
+    "Quit"
 ]
 
 def getHostOS(): # Get current operating system
     return os.name
+
+
+def clearTerminal(): # Clear screen
+    osName = getHostOS()
+
+    if osName == 'posix':
+        os.system("clear")
+    else:
+        os.system("cls")
 
 
 # Get MAC address from IP
@@ -60,15 +72,73 @@ def isValidIP(ip):
         return False, ip
 
     
-
+# Display main menu
 def menu():
-    osName = getHostOS()
-
     asciiBanner = pyfiglet.figlet_format("MalarPY")
 
     option, index = pick(options, asciiBanner, indicator = ">", default_index = 0)
     return option, index
     
+
+# Get all hosts connected to your network
+def getNetworkIPs(gateway = netifaces.gateways()['default'][netifaces.AF_INET][0]): # Use your default gateway if no gateway is passed
+    nm = nmap.PortScanner()
+    nm.scan(hosts = gateway, arguments = '-sn')
+    host_list = [(host, nm[host]['status']['state']) for host in nm.all_hosts() if host != gateway] # Get list of all UP hosts in the network
+    return host_list
+    
+
+def ARPSpoofer():
+    asciiBanner = pyfiglet.figlet_format("ARP Spoofer")
+    
+
+    options = ["Manual selection", "Find hosts", "Quit"]
+    option, index = pick(options, asciiBanner, indicator = ">", default_index = 0)
+
+    clearTerminal()
+    print(asciiBanner)
+
+    if index == 1:
+
+        while True:
+            gateway = input("Gateway [default '{}'] ('q' to quit):".format(netifaces.gateways()['default'][netifaces.AF_INET][0]))
+
+            if gateway == '':
+                print("Fetching default gateway")
+                allHosts = getNetworkIPs()
+
+                if len(allHosts) == 0:
+                    print("No hosts found... quiting")
+                    time.sleep(0.7)
+                    
+
+                else:
+                    print("Found {} host/s".format(len(allHosts)))
+
+            elif gateway != 'q' and gateway != '':
+
+                if isValidIP(gateway)[0]:
+                    print("Fetching '{}'".format(gateway))
+                    allHosts = getNetworkIPs(gateway)
+
+                    if len(allHosts) == 0:
+                        print("No hosts found... quiting")
+                        time.sleep(0.7)
+
+                    else:
+                        print("Found {} host/s".format(len(allHosts)))
+
+                else:
+                    print("'{}' is not a valid IP".format(gateway))
+                    time.sleep(0.8)
+
+            elif gateway.upper() == 'Q':
+                break
+
+    elif index == 2:
+        return
+
+
 
 def main(argv):
     argv.append("") # Add empty argument in the end bc I am too lazy
@@ -108,12 +178,18 @@ def main(argv):
         print("MAC address of target = {}".format(getMAC(target, verbose, showPacket)))
 
     else: # If the user does not pass any arguments start the menu
-        option, index = menu()
+        while True:
+
+            option, index = menu()
         
-        print("Starting {}".format(option))
+            print("Starting {}".format(option))
         
+            if index == 0: # Call the ARP Spoofer function
+                ARPSpoofer()
+
+            if index == len(options) - 1:
+                clearTerminal()
+                break
     
-
-
 if __name__ == "__main__":
     main(sys.argv[1:])
