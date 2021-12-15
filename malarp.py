@@ -7,6 +7,7 @@ import pyfiglet
 import os
 import nmap
 import netifaces
+import socket
 
 # Available flags
 flags = {
@@ -80,13 +81,73 @@ def menu():
     return option, index
     
 
-# Get all hosts connected to your network
-def getNetworkIPs(gateway = netifaces.gateways()['default'][netifaces.AF_INET][0]): # Use your default gateway if no gateway is passed
-    nm = nmap.PortScanner()
-    nm.scan(hosts = gateway, arguments = '-sn')
-    host_list = [(host, nm[host]['status']['state']) for host in nm.all_hosts() if host != gateway] # Get list of all UP hosts in the network
-    return host_list
+# Convert IP from dec form to bin form
+def ipToBin(ip):
+    return [bin(int(x)+256)[3:] for x in ip.split('.')] # Returns array of 4 binary octets
+
+# Get your subnet mask (use it to calculate network ID)
+def getSubnetMask(ip):
+    interfaces = netifaces.interfaces() # Get all network interfaces of the machine
+    mask = None
+    maskBits = 0
+
+    # Loop through the interfaces and look for the main one
+    for interface in interfaces:        
+        ifaddrInterface = netifaces.ifaddresses(interface)
+        if ifaddrInterface.get(2) != None:
+
+            if ifaddrInterface[2][0]['addr'] == ip: # If the network interface IPv4 matches your IPv4:
+                
+                mask = ifaddrInterface[2][0]['netmask'] # Return the network mask
+                break
     
+    # Return the amount of `1` bits of the network mask
+    binMask = "".join(ipToBin(mask))
+    
+    # Loop through binary string and count the amount of `1` bits until a `0` is found
+    for bit in binMask:
+        if bit == '1':
+            maskBits = maskBits + 1
+        
+        else:
+            break
+
+    return maskBits
+
+# BC socket.gethostbyname() is dumb, I have to send a UDP request to some DNS server in order to get my actual IPv4
+# If you dont do this, socket.gethostbyname() may return the wrong adapter, like Ethernet 2.
+#
+# Warning: You must be connected to the internet because, well... you have to connect to a DNS server
+def getMyIPv4():
+    # Create a datagram socket (single UDP request and response, then close)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    # Connect to an address on the internet that's likely to always be up (cmon google I need you now)
+    sock.connect(("8.8.8.8", 80))
+    # After connecting, the socket will have your IPv4 in its address field
+    return(sock.getsockname()[0])
+
+
+# Get all hosts connected to your network
+def getNetworkIPs():
+    # Get your IPv4
+    IPAddr = getMyIPv4()
+
+    subnetMask = '/' + str(getSubnetMask(IPAddr))
+
+    # Try to fetch hosts with nmap
+    nm = nmap.PortScanner()
+    result = nm.scan(IPAddr + subnetMask, arguments = '-sn')
+    allHosts = nm.all_hosts()
+
+    if len(allHosts) > 0:
+        return allHosts
+
+    else:
+        print("No hosts found...")
+        time.sleep(2)
+        return
+
+
 
 def ARPSpoofer():
     asciiBanner = pyfiglet.figlet_format("ARP Spoofer")
@@ -100,40 +161,22 @@ def ARPSpoofer():
 
     if index == 1:
 
-        while True:
-            gateway = input("Gateway [default '{}'] ('q' to quit):".format(netifaces.gateways()['default'][netifaces.AF_INET][0]))
+        print("Fetching the network... this may take a moment")
 
-            if gateway == '':
-                print("Fetching default gateway")
-                allHosts = getNetworkIPs()
+        allHosts = getNetworkIPs()
 
-                if len(allHosts) == 0:
-                    print("No hosts found... quiting")
-                    time.sleep(0.7)
+        if len(allHosts) == 0:
+            print("Quiting")
+            time.sleep(0.7)
                     
+        else:
+            print("Found {} host/s".format(len(allHosts)))
+            time.sleep(1)
 
-                else:
-                    print("Found {} host/s".format(len(allHosts)))
+            for i in range(0, len(allHosts)):
+                print("{} - {} ({})".format(i + 1, allHosts[i], socket.gethostbyaddr(allHosts[i])[0]))
 
-            elif gateway != 'q' and gateway != '':
-
-                if isValidIP(gateway)[0]:
-                    print("Fetching '{}'".format(gateway))
-                    allHosts = getNetworkIPs(gateway)
-
-                    if len(allHosts) == 0:
-                        print("No hosts found... quiting")
-                        time.sleep(0.7)
-
-                    else:
-                        print("Found {} host/s".format(len(allHosts)))
-
-                else:
-                    print("'{}' is not a valid IP".format(gateway))
-                    time.sleep(0.8)
-
-            elif gateway.upper() == 'Q':
-                break
+            IP2Spoof = input("Select an IP to spoof: ")
 
     elif index == 2:
         return
