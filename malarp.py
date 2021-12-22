@@ -37,6 +37,15 @@ def clearTerminal(): # Clear screen
     else:
         os.system("cls")
 
+# Wait for a key to be pressed before continuing
+def waitForKeyStroke():
+    osName = getHostOS()
+
+    if osName == 'posix':
+        os.system('read -s -n 1 -p "\nPress any key to continue"')
+    else:
+        os.system("pause")
+
 
 # Returns the IPv4 of the default gateway
 def getDefaultGateway():
@@ -93,6 +102,13 @@ def menu():
 # Convert IP from dec form to bin form
 def ipToBin(ip):
     return [bin(int(x)+256)[3:] for x in ip.split('.')] # Returns array of 4 binary octets
+
+# Different function to convert an IP to binary (used to validate an IP in the ARP Spoofer)
+def ip2Bin(ip):
+    octetListInt = ip.split(".")
+    octetListBin = [format(int(i), '08b') for i in octetListInt]
+    binary = ("").join(octetListBin)
+    return binary
 
 # Get your subnet mask (use it to calculate network ID)
 def getSubnetMask(ip):
@@ -185,9 +201,30 @@ def spoof(targetIP, targetMAC, gatewayIP, gatewayMAC):
         time.sleep(2.5)
 
 
+# Returns the network address given an IP and a subnet MASK in the CIDR notation (192.168.1.109/24 for example)
+def getNetworkAddress(IP, MASKsize):
+    # Convert IP address to 32 bit binary
+    ipBin = ip2Bin(IP)
+    # Extract network ID from 32 bit binary
+    network = ipBin[0:32-(32-MASKsize)]
+    return network
+
+
+# Checks if an IP belongs to my network
+def isInMyNetwork(IP, prefix):
+    # Get the network address of the given IP and compare it to mine
+    targetID = getNetworkAddress(IP, prefix)
+    myID = getNetworkAddress(getMyIPv4(), prefix)
+    return targetID == myID
+
+
 # Checks if a host belongs to the same network as me
 def validateHost(IP):
-    pass
+    myIP = getMyIPv4()
+    mask = getSubnetMask(myIP)
+
+    return isInMyNetwork(IP, mask)
+
 
 
 def ARPSpoofer():
@@ -233,10 +270,61 @@ def ARPSpoofer():
             print("'{}' Is not a valid IP address".format(gw))
             time.sleep(0.5)
 
-        print("Target IP: {}".format(IP2Spoof))
-        print("Gateway: {}".format(gw))
-        print("Validating hosts...")
-        time.sleep(4)
+        print("[+] Target IP: {}".format(IP2Spoof))
+        print("[+] Gateway: {}".format(gw))
+        time.sleep(0.5)
+
+        print("Validating target's IP...")
+        isValid = validateHost(IP2Spoof)
+        # If the target doesn't belong to the same network as me, exit
+        if not isValid:
+            print("The specified IP address '{}' does not belong to the same network as you".format(IP2Spoof))
+
+        time.sleep(0.7)
+
+        print("Validating gateway IP...")
+        isValidGW = validateHost(gw)
+
+        if not isValidGW:
+            print("The specified gateway '{}' cannot be reached".format(gw))
+        
+
+        # Only spoof the target if the hosts are validated
+        if isValid and isValidGW:
+            # Check if the hosts are UP before trying to spoof them
+            time.sleep(1.5)
+            print("Checking if hosts are UP...")
+            scanner = nmap.PortScanner()
+            time.sleep(1)
+            print("[+] Pinging '{}'".format(IP2Spoof))
+            scanner.scan(IP2Spoof, '1', '-v')
+            stateTarget = scanner[IP2Spoof].state()
+            
+            if stateTarget != 'up':
+                print("[+] Target is [DOWN]")
+            else:
+                print("[+] Target is [UP]")
+
+            time.sleep(1)
+            print("[+] Pinging '{}'".format(gw))
+            scanner.scan(gw, '1', '-v')
+            stateGW = scanner[gw].state()
+
+            if stateGW != 'up':
+                print("[+] Gateway is [DOWN]")
+            else:
+                print("[+] Gateway is [UP]")
+            
+            if stateGW == 'up' and stateTarget == 'up':
+                print("Starting the spoofer...")
+
+            elif stateGW != 'up' or stateTarget != 'up':
+                print("One of the hosts is not UP...")
+                waitForKeyStroke()
+
+            else:
+                print("None of the hosts are up...")
+                waitForKeyStroke()
 
 
     elif index == 1:
