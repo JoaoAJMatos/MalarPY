@@ -5,6 +5,7 @@ time
 ipaddress
 pyfiglet
 os
-nmap
+python-nmap
 netifaces
 socket
+winreg
