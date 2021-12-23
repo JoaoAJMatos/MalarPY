@@ -22,6 +22,7 @@ options = [
     "ARP Spoofer",
     "ARP Table",
     "Connected Machines",
+    "Help",
     "Quit"
 ]
 
@@ -42,7 +43,7 @@ def waitForKeyStroke():
     osName = getHostOS()
 
     if osName == 'posix':
-        os.system('read -s -n 1 -p "\nPress any key to continue"')
+        os.system('read -s -n 1 -p "Press any key to continue"')
     else:
         os.system("pause")
 
@@ -153,7 +154,9 @@ def getMyIPv4():
 
 
 # Get all hosts connected to your network
-def getNetworkIPs():
+# The 'me' flag determines if your own IPv4 is to be displayed in the list (default = True)
+# The 'gw' flag determines if the default gateway is to be displayed in the list (default = True)
+def getNetworkIPs(me = True, gw = True):
     # Get your IPv4
     IPAddr = getMyIPv4()
 
@@ -164,10 +167,16 @@ def getNetworkIPs():
     result = nm.scan(IPAddr + subnetMask, arguments = '-sn')
     allHosts = nm.all_hosts()
 
-    # Remove the default gateway from the list
-    defaultGateway = getDefaultGateway()
-    if defaultGateway in allHosts:
-        allHosts.remove(defaultGateway)
+    # Remove my IPv4 from the list if the flag is set to false
+    if not me:
+        if IPAddr in allHosts:
+            allHosts.remove(IPAddr)
+
+    # Remove the default gateway from the list if the flag is set to false
+    if not gw:
+        defaultGateway = getDefaultGateway()
+        if defaultGateway in allHosts:
+            allHosts.remove(defaultGateway)
 
 
     if len(allHosts) > 0:
@@ -315,9 +324,17 @@ def ARPSpoofer():
             else:
                 print("[+] Gateway is [UP]")
             
+            # If both of the hosts are UP, the spoofing can start
             if stateGW == 'up' and stateTarget == 'up':
                 print("Starting the spoofer...")
+                
+                # Get MAC addresses of the target and the gateway
+                targetMAC = getMAC(IP2Spoof)
+                gwMAC = getMAC(gw)
 
+                spoof(IP2Spoof, targetMAC, gw, gwMAC) # Start the spoofer
+    
+                
             elif stateGW != 'up' or stateTarget != 'up':
                 print("One of the hosts is not UP...")
                 waitForKeyStroke()
@@ -328,40 +345,72 @@ def ARPSpoofer():
 
 
     elif index == 1:
+        try:
+            print("Fetching the network... this may take a moment")
 
-        print("Fetching the network... this may take a moment")
+            allHosts = getNetworkIPs(False, False)
 
-        allHosts = getNetworkIPs()
-
-        if len(allHosts) == 0:
-            print("Quiting")
-            time.sleep(0.7)
+            if len(allHosts) == 0:
+                print("Quiting")
+                time.sleep(0.7)
                     
-        else:
-            print("Found {} host/s".format(len(allHosts)))
-            time.sleep(1)
+            else:
+                print("Found {} host/s".format(len(allHosts)))
+                time.sleep(1)
 
-            for i in range(0, len(allHosts)):
-                print("{} - {} ({})".format(i + 1, allHosts[i], socket.gethostbyaddr(allHosts[i])[0]))
+                for i in range(0, len(allHosts)):
+                    print("{} - {} ({})".format(i + 1, allHosts[i], socket.gethostbyaddr(allHosts[i])[0]))
 
-            IP2Spoof = int(input("Select an IP to spoof: "))
-            targetIP = allHosts[IP2Spoof - 1]
+                IP2Spoof = int(input("Select an IP to spoof: "))
+                targetIP = allHosts[IP2Spoof - 1]
 
 
-            # Get the MAC address of the specified IP address
-            MACTarget = getMAC(targetIP)
+                # Get the MAC address of the specified IP address
+                MACTarget = getMAC(targetIP)
 
-            # Get MAC address of the default gateway
-            defaultGateway = getDefaultGateway()
-            dfGWMAC = getMAC(defaultGateway)
+                # Get MAC address of the default gateway
+                defaultGateway = getDefaultGateway()
+                dfGWMAC = getMAC(defaultGateway)
 
-            # Spoof
-            spoof(targetIP, MACTarget, defaultGateway, dfGWMAC)
+                # Spoof
+                spoof(targetIP, MACTarget, defaultGateway, dfGWMAC)
             
+        except KeyboardInterrupt:
+            print("\nKeyboard interrupt detected, exiting...")
+            time.sleep(1.5)
 
     elif index == 2:
         return
 
+
+# Gets all the machines connected to your network
+def connectedMachines():
+    asciiBanner = pyfiglet.figlet_format("Connected Machines")
+
+    allMachines = []
+    size = 0
+
+    clearTerminal()
+    print(asciiBanner)
+    print("Fetching your network... This may take a while (CTRL+C to exit)")
+
+    try:
+        allMachines = getNetworkIPs()
+        size = len(allMachines)
+    except KeyboardInterrupt:
+        print("Keyboard interrupt detected, exiting...")
+        time.sleep(1.7)
+
+    if size > 0:
+        print("[+] Found {} machines!".format(size))
+        for i in range(0, size):
+            if allMachines[i] == getDefaultGateway():
+                print("{} - {} ({} | Default Gateway)".format(i + 1, allMachines[i], socket.gethostbyaddr(allMachines[i])[0]))
+            else:
+                print("{} - {} ({})".format(i + 1, allMachines[i], socket.gethostbyaddr(allMachines[i])[0]))
+
+        print("\n")
+        waitForKeyStroke()
 
 
 def main(argv):
@@ -410,6 +459,9 @@ def main(argv):
         
             if index == 0: # Call the ARP Spoofer function
                 ARPSpoofer()
+            
+            if index == 2: # Call connected machines function
+                connectedMachines()
 
             if index == len(options) - 1:
                 clearTerminal()
