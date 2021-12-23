@@ -205,6 +205,7 @@ def getNetworkIPs(me = True, gw = True):
 
 
 # Enables ip forwarding on my machine in order to route the packets transmited by the target
+#
 # By itself the spoof() function cuts the access to the internet to the specified target by making the packets pass through my machine
 # In order to get any valuable information we must let the targeted machine reach the internet. Therefore we must do the router's job
 #
