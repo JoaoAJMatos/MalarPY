@@ -9,12 +9,16 @@ def help():
       asciiBanner = pyfiglet.figlet_format("Help")
       print(asciiBanner)
       text = '''
-MalarPY | Your all-in-one hacking tool
+[+] MalarPY | Your all-in-one hacking tool
 
-Functionalities:
- - ARP Spoofing (Man In The Middle Attack)
- - Internet Cutoff (Disables access to the internet to a machine on your local network)
- -
+[+] Functionalities:
+    - ARP Spoofing         ->    Man In The Middle Attack
+    - ARP Table            ->    Displays the current ARP table state for your network interfaces
+    - Connected Machines   ->    Displays the IPs and possible names of every device connected to your network
+    - Internet Cutoff      ->    Disables access to the internet to a machine on your local network
+    - Whois Query          ->    Displays the result of a Whois query on a specified target
+    - Help                 ->    Shows help file
+    - Quit                 ->    Exits the program
 '''
 
       print(text)

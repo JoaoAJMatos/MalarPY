@@ -11,6 +11,7 @@ import netifaces
 import socket
 import winreg
 import threading
+import whois
 
 from help import *
 from util import *
@@ -29,6 +30,7 @@ options = [
     "ARP Table",
     "Connected Machines",
     "Internet Cutoff",
+    "Whois Query",
     "Help",
     "Quit"
 ]
@@ -616,6 +618,29 @@ def ARPTable():
     waitForKeyStroke()
 
 
+def whoisQuery():
+    asciiBanner = pyfiglet.figlet_format("Whois")
+    clearTerminal()
+    print(asciiBanner)
+
+    target = input("Insert an IP/Domain Name to search: ")
+    
+    print("Checking if the host is reachable")
+    reachable  = True if os.system("ping -c 1 " + target) is 0 else False
+
+    time.sleep(1)
+    clearTerminal()
+    print(asciiBanner)
+
+    if reachable:
+        print(f"[+] Whois query info for '{target}': \n")
+        print(whois.whois(target))
+    else:
+        print(f"Unable to reach host '{target}'")
+
+    waitForKeyStroke()
+
+
 def main(argv):
     argv.append("") # Add empty argument in the end bc I am too lazy
     gateway = ""
@@ -673,6 +698,9 @@ def main(argv):
                 internetCutoff()
 
             if index == 4:
+                whoisQuery()
+
+            if index == 5:
                 help()
 
             if index == len(options) - 1:

@@ -9,3 +9,4 @@ python-nmap
 netifaces
 socket
 winreg
+python-whois
