@@ -1,7 +1,25 @@
+# On startup, malarpy will check for uninstalled python modules and prompt the user to install them in order to avoid execution errors
+import pkg_resources
+import sys
+import subprocess
+
+required = {"scapy", "pyfiglet", "python-nmap", "netifaces", "requests", "python-whois", "pick", "phonenumbers"}
+installed = {pkg.key for pkg in pkg_resources.working_set}
+missing = required - installed
+
+if missing:
+    install = input(f"You got {len(missing)} missing packages. Would you like to install them? (Y/N): ").upper()
+    
+    if install == "Y":
+        python = sys.executable
+        subprocess.check_call([python, '-m', 'pip', 'install', *missing], stdout=subprocess.DEVNULL)
+        print("\033[1;37;40m") # Sets terminal color back to white bc pip is dumb
+    else:
+        sys.exit()
+
 from scapy import interfaces
 import scapy.all as scapy
 from pick import pick # Pick is used to create interactive menus
-import sys
 import time
 import ipaddress
 import pyfiglet
@@ -12,6 +30,11 @@ import socket
 import winreg
 import threading
 import whois
+
+import phonenumbers
+from phonenumbers import geocoder
+from phonenumbers import carrier
+from phonenumbers import timezone
 
 from help import *
 from util import *
@@ -31,6 +54,7 @@ options = [
     "Connected Machines",
     "Internet Cutoff",
     "Whois Query",
+    "Phone Info",
     "Help",
     "Quit"
 ]
@@ -329,7 +353,7 @@ def validateHost(IP):
 def ARPSpoofer():
     asciiBanner = pyfiglet.figlet_format("ARP Spoofer")
 
-    options = ["Manual selection", "Find hosts", "Quit"]
+    options = ["Manual selection", "Find hosts (recommended)", "Quit"]
     option, index = pick(options, asciiBanner, indicator = ">", default_index = 0)
 
     clearTerminal()
@@ -379,14 +403,18 @@ def ARPSpoofer():
             # If the target doesn't belong to the same network as me, exit
             if not isValid:
                 print("The specified IP address '{}' does not belong to the same network as you".format(IP2Spoof))
+                waitForKeyStroke()
+                return
 
-            time.sleep(0.7)
+            time.sleep(1.5)
 
             print("Validating gateway IP...")
             isValidGW = validateHost(gw)
 
             if not isValidGW:
                 print("The specified gateway '{}' cannot be reached".format(gw))
+                waitForKeyStroke()
+                return
             
 
             # Only spoof the target if the hosts are validated
@@ -440,6 +468,7 @@ def ARPSpoofer():
                         return
 
                     logIt = input("Would you like to get a log of the incomming packets? (y/n):")
+                    print("[+] Logging all TCP/IP packets...")
 
                     if logIt.upper == "Y":
                         spoof(IP2Spoof, targetMAC, gw, gwMAC, summary=True) # Start the spoofer
@@ -506,6 +535,7 @@ def ARPSpoofer():
                      return
 
                 logIt = str(input("Would you like to get a log of the incomming packets? (y/n):"))
+                print("[+] Logging all TCP/IP packets...")
 
                 if logIt.upper() == "Y":
                     spoof(targetIP, MACTarget, defaultGateway, dfGWMAC, summary=True) # Start the spoofer
@@ -618,6 +648,10 @@ def ARPTable():
     waitForKeyStroke()
 
 
+def isReachable(host):
+    return True if os.system("ping -c 1 " + host) == 0 else False
+
+
 def whoisQuery():
     asciiBanner = pyfiglet.figlet_format("Whois")
     clearTerminal()
@@ -626,7 +660,7 @@ def whoisQuery():
     target = input("Insert an IP/Domain Name to search: ")
     
     print("Checking if the host is reachable")
-    reachable  = True if os.system("ping -c 1 " + target) is 0 else False
+    reachable = isReachable(target)
 
     time.sleep(1)
     clearTerminal()
@@ -634,10 +668,30 @@ def whoisQuery():
 
     if reachable:
         print(f"[+] Whois query info for '{target}': \n")
-        print(whois.whois(target))
+        res = whois.whois(target)
+
+        print(res)
     else:
         print(f"Unable to reach host '{target}'")
 
+    waitForKeyStroke()
+
+
+def phoneInfo():
+    asciiBanner = pyfiglet.figlet_format("Phone Info")
+    clearTerminal()
+    print(asciiBanner)
+
+    phone = input("Insert target's phone number (eg +1 1234567890): ")
+    targetPhone = phonenumbers.parse(phone)
+    print(f"\n[+]Phone info for: {phone}")
+    print(targetPhone)
+    print("Country: ", geocoder.description_for_number(targetPhone, 'en'))
+
+    timeZone = timezone.time_zones_for_number(targetPhone)
+    print("Timezone: ", timeZone)
+
+    print("Service provider: " + carrier.name_for_number(targetPhone, 'en') + "\n")
     waitForKeyStroke()
 
 
@@ -685,25 +739,28 @@ def main(argv):
         
             print("Starting {}".format(option))
         
-            if index == 0: # Call the ARP Spoofer function
+            if index == options.index("ARP Spoofer"): # Call the ARP Spoofer function
                 ARPSpoofer()
             
-            if index == 1: # Call ARP table
+            if index == options.index("ARP Table"): # Call ARP table
                 ARPTable()
 
-            if index == 2: # Call connected machines function
+            if index == options.index("Connected Machines"): # Call connected machines function
                 connectedMachines()
 
-            if index == 3: # Call internet cutoff function
+            if index == options.index("Internet Cutoff"): # Call internet cutoff function
                 internetCutoff()
 
-            if index == 4:
+            if index == options.index("Whois Query"):
                 whoisQuery()
 
-            if index == 5:
+            if index == options.index("Phone Info"):
+                phoneInfo()
+
+            if index == options.index("Help"):
                 help()
 
-            if index == len(options) - 1:
+            if index == options.index("Quit"):
                 clearTerminal()
                 os._exit(0)
     

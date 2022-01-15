@@ -1,12 +1,8 @@
 scapy
 pick
-sys
-time
-ipaddress
 pyfiglet
-os
 python-nmap
 netifaces
-socket
-winreg
 python-whois
+requests
+phonenumbers
