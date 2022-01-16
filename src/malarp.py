@@ -572,10 +572,14 @@ def connectedMachines():
     if size > 0:
         print("[+] Found {} machines!".format(size))
         for i in range(0, size):
-            if allMachines[i] == getDefaultGateway():
-                print("{} - {} ({} | Default Gateway)".format(i + 1, allMachines[i], socket.gethostbyaddr(allMachines[i])[0]))
-            else:
-                print("{} - {} ({})".format(i + 1, allMachines[i], socket.gethostbyaddr(allMachines[i])[0]))
+            try:
+                if allMachines[i] == getDefaultGateway():
+                    print("{} - {} ({} | Default Gateway)".format(i + 1, allMachines[i], socket.gethostbyaddr(allMachines[i])[0]))
+                else:
+                    print("{} - {} ({})".format(i + 1, allMachines[i], socket.gethostbyaddr(allMachines[i])[0]))
+            
+            except:
+                print(f"{i} - {allMachines[i]} (Name not found)")
 
         print("\n")
         waitForKeyStroke()

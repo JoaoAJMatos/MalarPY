@@ -1,6 +1,5 @@
 # HELP File for MalarPY
 import pyfiglet
-import time
 
 from util import *
 
@@ -17,6 +16,7 @@ def help():
     - Connected Machines   ->    Displays the IPs and possible names of every device connected to your network
     - Internet Cutoff      ->    Disables access to the internet to a machine on your local network
     - Whois Query          ->    Displays the result of a Whois query on a specified target
+    - Phone Info           ->    Fetches info on a specified phone number
     - Help                 ->    Shows help file
     - Quit                 ->    Exits the program
 '''
