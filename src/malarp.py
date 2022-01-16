@@ -69,7 +69,12 @@ def getDefaultGateway():
 
 # Returns the IP corresponding to a specified domain name
 def resolveDomain(domain):
-    return socket.gethostbyname_ex(domain)[2][0]
+    try:
+        return socket.gethostbyname_ex(domain)[2][0]
+    
+    except:
+        print(f"Unable to resolve domain '{domain}'")
+        return 1
 
 
 # Get MAC address from IP
@@ -702,21 +707,27 @@ def regularPortScan(scanner):
     try:
 
         target = resolveDomain(input("Insert target's IP/domain: "))
-        print(f"[+] Scanning {target}")
-        print("[+] This may take a bit... (CTRL + C to exit)")
 
-        scanner.scan(target)
-        openPorts = scanner[target]['tcp'].keys()
+        if target != 1:
 
-        print(f"[+] Target status: [{scanner[target].state()}] | Found {len(openPorts)} open ports!\n")
+            print(f"[+] Scanning {target}")
+            print("[+] This may take a bit... (CTRL + C to exit)")
 
-        if len(openPorts) > 0:
+            scanner.scan(target)
+            openPorts = scanner[target]['tcp'].keys()
 
-            for port in openPorts:
-                print(f"-> Port [{port}] Open")
+            print(f"[+] Target status: [{scanner[target].state()}] | Found {len(openPorts)} open ports!\n")
 
-        print("\n")
-        waitForKeyStroke()
+            if len(openPorts) > 0:
+
+                for port in openPorts:
+                    print(f"-> Port [{port}] Open")
+
+            print("\n")
+            waitForKeyStroke()
+        
+        else:
+            waitForKeyStroke()
     
     except KeyboardInterrupt:
         print("\nKeyboard interrupt detected. Exiting Regular Scan...")
@@ -772,25 +783,37 @@ def osDetection():
 
     try:
         target = resolveDomain(input("Enter target's IP/domain: "))
-        osInfo = scanner.scan(target, arguments="-O")['scan'][target]['osmatch'][1]
 
-        osName = osInfo['name']
-        accuracy = osInfo['accuracy']
-        osClass = osInfo['osclass']
-        osType = osClass[0]['type']
-        osVendor = osClass[0]['vendor']
-        osFamily = osClass[0]['osfamily']
-        osGeneration = osClass[0]['osgen']
+        if target != 1:
 
-        print(f"[+] OS Info for {target}:")
-        print(f"-> Name: {osName} ({accuracy}% accuracy)")
-        print(f"-> Type: {osType}")
-        print(f"-> Vendor: {osVendor}")
-        print(f"-> Family: {osFamily}")
-        print(f"-> Generation: {osGeneration}\n")
+            try:
+                osInfo = scanner.scan(target, arguments="-O")['scan'][target]['osmatch'][1]
+            except:
+                print(f"Unable to get OS Info for {target}...\n")
+                waitForKeyStroke()
+                return
 
 
-        waitForKeyStroke()
+            osName = osInfo['name']
+            accuracy = osInfo['accuracy']
+            osClass = osInfo['osclass']
+            osType = osClass[0]['type']
+            osVendor = osClass[0]['vendor']
+            osFamily = osClass[0]['osfamily']
+            osGeneration = osClass[0]['osgen']
+
+            print(f"[+] OS Info for {target}:")
+            print(f"-> Name: {osName} ({accuracy}% accuracy)")
+            print(f"-> Type: {osType}")
+            print(f"-> Vendor: {osVendor}")
+            print(f"-> Family: {osFamily}")
+            print(f"-> Generation: {osGeneration}\n")
+
+
+            waitForKeyStroke()
+        
+        else:
+            waitForKeyStroke()
     
     except KeyboardInterrupt:
         print("\nKeyboard interrupt detected. Exiting OS Detection...")
