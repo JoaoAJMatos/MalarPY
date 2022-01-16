@@ -8,7 +8,7 @@ installed = {pkg.key for pkg in pkg_resources.working_set}
 missing = required - installed
 
 if missing:
-    install = input(f"You got {len(missing)} missing packages. Would you like to install them? (Y/N): ").upper()
+    install = input(f"You got {len(missing)} missing modules. Would you like to install them? (Y/N): ").upper()
     
     if install == "Y":
         python = sys.executable
@@ -51,6 +51,8 @@ flags = {
 options = [
     "ARP Spoofer",
     "ARP Table",
+    "Port Scanner",
+    "OS Detection",
     "Connected Machines",
     "Internet Cutoff",
     "Whois Query",
@@ -63,6 +65,12 @@ options = [
 def getDefaultGateway():
     gateways = netifaces.gateways()
     return gateways['default'][netifaces.AF_INET][0]
+
+
+# Returns the IP corresponding to a specified domain name
+def resolveDomain(domain):
+    return socket.gethostbyname_ex(domain)[2][0]
+
 
 # Get MAC address from IP
 def getMAC(ip, verbose = False, showPacket = False):
@@ -102,15 +110,6 @@ def isValidIP(ip):
     
     except ValueError:
         return False, ip
-
-    
-# Display main menu
-def menu():
-    asciiBanner = pyfiglet.figlet_format("MalarPY")
-
-    option, index = pick(options, asciiBanner, indicator = ">", default_index = 0)
-    return option, index
-    
 
 # Convert IP from dec form to bin form
 def ipToBin(ip):
@@ -468,7 +467,7 @@ def ARPSpoofer():
                         return
 
                     logIt = input("Would you like to get a log of the incomming packets? (y/n):")
-                    print("[+] Logging all TCP/IP packets...")
+                    print("[+] Logging all TCP/IP packets... (packets may take a while to appear on the logger)")
 
                     if logIt.upper == "Y":
                         spoof(IP2Spoof, targetMAC, gw, gwMAC, summary=True) # Start the spoofer
@@ -535,7 +534,7 @@ def ARPSpoofer():
                      return
 
                 logIt = str(input("Would you like to get a log of the incomming packets? (y/n):"))
-                print("[+] Logging all TCP/IP packets...")
+                print("[+] Logging all TCP/IP packets... (packets may take a while to appear on the logger)")
 
                 if logIt.upper() == "Y":
                     spoof(targetIP, MACTarget, defaultGateway, dfGWMAC, summary=True) # Start the spoofer
@@ -663,20 +662,16 @@ def whoisQuery():
 
     target = input("Insert an IP/Domain Name to search: ")
     
-    print("Checking if the host is reachable")
-    reachable = isReachable(target)
+    print("Fetching info...")
 
     time.sleep(1)
     clearTerminal()
     print(asciiBanner)
 
-    if reachable:
-        print(f"[+] Whois query info for '{target}': \n")
-        res = whois.whois(target)
+    print(f"[+] Whois query info for '{target}': \n")
+    res = whois.whois(target)
 
-        print(res)
-    else:
-        print(f"Unable to reach host '{target}'")
+    print(res)
 
     waitForKeyStroke()
 
@@ -688,7 +683,7 @@ def phoneInfo():
 
     phone = input("Insert target's phone number (eg +1 1234567890): ")
     targetPhone = phonenumbers.parse(phone)
-    print(f"\n[+]Phone info for: {phone}")
+    print(f"\n[+] Phone info for: {phone}")
     print(targetPhone)
     print("Country: ", geocoder.description_for_number(targetPhone, 'en'))
 
@@ -698,6 +693,116 @@ def phoneInfo():
     print("Service provider: " + carrier.name_for_number(targetPhone, 'en') + "\n")
     waitForKeyStroke()
 
+
+def regularPortScan(scanner):
+    asciiBanner = pyfiglet.figlet_format("Regular Scan")
+    clearTerminal()
+    print(asciiBanner)
+
+    try:
+
+        target = resolveDomain(input("Insert target's IP/domain: "))
+        print(f"[+] Scanning {target}")
+        print("[+] This may take a bit... (CTRL + C to exit)")
+
+        scanner.scan(target)
+        openPorts = scanner[target]['tcp'].keys()
+
+        print(f"[+] Target status: [{scanner[target].state()}] | Found {len(openPorts)} open ports!\n")
+
+        if len(openPorts) > 0:
+
+            for port in openPorts:
+                print(f"-> Port [{port}] Open")
+
+        print("\n")
+        waitForKeyStroke()
+    
+    except KeyboardInterrupt:
+        print("\nKeyboard interrupt detected. Exiting Regular Scan...")
+        time.sleep(1.5)
+
+def synAckScan(scanner):
+    asciiBanner = pyfiglet.figlet_format("Syn-Ack Scan")
+    clearTerminal()
+    print(asciiBanner)
+
+    
+
+def portScannerMenu(options, banner):
+
+    option, index = pick(options, banner, indicator = ">", default_index=0)
+    return option, index
+
+
+def portScanner():
+    options = [
+        "Regular Scan",
+        "SYN/ACK Scan",
+        "UDP Scan",
+        "Comprehensive Scan",
+        "Quit"
+    ]
+
+    asciiBanner = pyfiglet.figlet_format("Port Scanner")
+    
+    clearTerminal()
+    scanner = nmap.PortScanner() # Initialize port scanner
+
+    try:
+        option, index = portScannerMenu(options, asciiBanner) # Get user option
+
+        if option == "Regular Scan":
+            regularPortScan(scanner)
+
+        elif option == "Quit":
+            return
+
+    except KeyboardInterrupt:
+        print("\nKeyboard interrupt detected. Exiting Port Scanner...")
+        time.sleep(1.5)
+
+
+def osDetection():
+    asciiBanner = pyfiglet.figlet_format("OS Detection")
+    clearTerminal()
+    print(asciiBanner)
+
+    scanner = nmap.PortScanner()
+
+    try:
+        target = resolveDomain(input("Enter target's IP/domain: "))
+        osInfo = scanner.scan(target, arguments="-O")['scan'][target]['osmatch'][1]
+
+        osName = osInfo['name']
+        accuracy = osInfo['accuracy']
+        osClass = osInfo['osclass']
+        osType = osClass[0]['type']
+        osVendor = osClass[0]['vendor']
+        osFamily = osClass[0]['osfamily']
+        osGeneration = osClass[0]['osgen']
+
+        print(f"[+] OS Info for {target}:")
+        print(f"-> Name: {osName} ({accuracy}% accuracy)")
+        print(f"-> Type: {osType}")
+        print(f"-> Vendor: {osVendor}")
+        print(f"-> Family: {osFamily}")
+        print(f"-> Generation: {osGeneration}\n")
+
+
+        waitForKeyStroke()
+    
+    except KeyboardInterrupt:
+        print("\nKeyboard interrupt detected. Exiting OS Detection...")
+        time.sleep(1.5)
+
+
+# Display main menu
+def menu():
+    asciiBanner = pyfiglet.figlet_format("MalarPY")
+
+    option, index = pick(options, asciiBanner, indicator = ">", default_index = 0)
+    return option, index
 
 def main(argv):
     argv.append("") # Add empty argument in the end bc I am too lazy
@@ -743,28 +848,34 @@ def main(argv):
         
             print("Starting {}".format(option))
         
-            if index == options.index("ARP Spoofer"): # Call the ARP Spoofer function
+            if option == "ARP Spoofer": # Call the ARP Spoofer function
                 ARPSpoofer()
             
-            if index == options.index("ARP Table"): # Call ARP table
+            if option == "ARP Table": # Call ARP table
                 ARPTable()
 
-            if index == options.index("Connected Machines"): # Call connected machines function
+            if option == "Connected Machines": # Call connected machines function
                 connectedMachines()
 
-            if index == options.index("Internet Cutoff"): # Call internet cutoff function
+            if option == "Internet Cutoff": # Call internet cutoff function
                 internetCutoff()
 
-            if index == options.index("Whois Query"):
+            if option == "Whois Query":
                 whoisQuery()
 
-            if index == options.index("Phone Info"):
+            if option == "Phone Info":
                 phoneInfo()
 
-            if index == options.index("Help"):
+            if option == "Port Scanner":
+                portScanner()
+            
+            if option == "OS Detection":
+                osDetection()
+
+            if option == "Help":
                 help()
 
-            if index == options.index("Quit"):
+            if option == "Quit":
                 clearTerminal()
                 os._exit(0)
     
