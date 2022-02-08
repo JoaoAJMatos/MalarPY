@@ -509,8 +509,11 @@ def ARPSpoofer():
                 time.sleep(1)
 
                 for i in range(0, len(allHosts)):
-                    print("{} - {} ({})".format(i + 1, allHosts[i], socket.gethostbyaddr(allHosts[i])[0]))
-
+                    try:
+                        print("{} - {} ({})".format(i + 1, allHosts[i], socket.gethostbyaddr(allHosts[i])[0]))
+                    except:
+                        print("{} - {} ({})".format(i + 1, allHosts[i], "Unable to find hostname"))
+                    
                 IP2Spoof = int(input("Select an IP to spoof: "))
                 targetIP = allHosts[IP2Spoof - 1]
 
@@ -564,6 +567,7 @@ def connectedMachines():
 
     clearTerminal()
     print(asciiBanner)
+    getNames = input("Would you like to attempt to fetch the hostnames of every machine? (Not recommended for large networks) (y/n):")
     print("Fetching your network... This may take a while (CTRL+C to exit)")
 
     try:
@@ -577,11 +581,17 @@ def connectedMachines():
         print("[+] Found {} machines!".format(size))
         for i in range(0, size):
             try:
-                if allMachines[i] == getDefaultGateway():
-                    print("{} - {} ({} | Default Gateway)".format(i + 1, allMachines[i], socket.gethostbyaddr(allMachines[i])[0]))
-                else:
-                    print("{} - {} ({})".format(i + 1, allMachines[i], socket.gethostbyaddr(allMachines[i])[0]))
+                if getNames.upper() == "Y":
+                    if allMachines[i] == getDefaultGateway():
+                        print("{} - {} ({} | Default Gateway)".format(i + 1, allMachines[i], socket.gethostbyaddr(allMachines[i])[0]))
+                    else:
+                        print("{} - {} ({})".format(i + 1, allMachines[i], socket.gethostbyaddr(allMachines[i])[0]))
             
+                else:
+                    if allMachines[i] == getDefaultGateway():
+                        print("{} - {} | Default Gateway".format(i + 1, allMachines[i]))
+                    else:
+                        print("{} - {}".format(i + 1, allMachines[i]))
             except:
                 print(f"{i} - {allMachines[i]} (Name not found)")
 
@@ -610,7 +620,10 @@ def internetCutoff():
     if size > 0:
         print("[+] Found {} machines!".format(size))
         for i in range(0, size):
-            print("{} - {} ({})".format(i + 1, allMachines[i], socket.gethostbyaddr(allMachines[i])[0]))
+            try:
+                print("{} - {} ({})".format(i + 1, allMachines[i], socket.gethostbyaddr(allMachines[i])[0]))
+            except:
+                print("{} - {} ({})".format(i + 1, allMachines[i], "Unable to get hostname"))
 
         IP2Cut = int(input("Choose the host you wish to cut access to the internet: "))
         targetIP = allMachines[IP2Cut - 1]
