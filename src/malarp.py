@@ -498,7 +498,7 @@ def ARPSpoofer():
         try:
             print("Fetching the network... this may take a moment")
 
-            allHosts = getNetworkIPs(False, False)
+            allHosts = getNetworkIPs(False, True)
 
             if len(allHosts) == 0:
                 print("Quiting")
@@ -687,15 +687,21 @@ def phoneInfo():
     print(asciiBanner)
 
     phone = input("Insert target's phone number (eg +1 1234567890): ")
-    targetPhone = phonenumbers.parse(phone)
-    print(f"\n[+] Phone info for: {phone}")
-    print(targetPhone)
-    print("Country: ", geocoder.description_for_number(targetPhone, 'en'))
+    
+    try:
+        targetPhone = phonenumbers.parse(phone)
+        print(f"\n[+] Phone info for: {phone}")
+        print(targetPhone)
+        print("Country: ", geocoder.description_for_number(targetPhone, 'en'))
 
-    timeZone = timezone.time_zones_for_number(targetPhone)
-    print("Timezone: ", timeZone)
+        timeZone = timezone.time_zones_for_number(targetPhone)
+        print("Timezone: ", timeZone)
 
-    print("Service provider: " + carrier.name_for_number(targetPhone, 'en') + "\n")
+        print("Service provider: " + carrier.name_for_number(targetPhone, 'en') + "\n")
+    
+    except:
+        print("Something went wrong when attempting to parse phone number. Is it formated correctly?")
+    
     waitForKeyStroke()
 
 
