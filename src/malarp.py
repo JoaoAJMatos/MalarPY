@@ -29,7 +29,13 @@ import netifaces
 import socket
 import winreg
 import threading
+import pyfiglet
+from pick import pick # Pick is used to create interactive menus
+import time
 import whois
+import re
+from collections import namedtuple
+import configparser
 
 import phonenumbers
 from phonenumbers import geocoder
@@ -57,6 +63,7 @@ options = [
     "Internet Cutoff",
     "Whois Query",
     "Phone Info",
+    "Get Wi-fi Passwords",
     "Help",
     "Quit"
 ]
@@ -75,36 +82,6 @@ def resolveDomain(domain):
     except:
         print(f"Unable to resolve domain '{domain}'")
         return 1
-
-
-# Get MAC address from IP
-def getMAC(ip, verbose = False, showPacket = False):
-    # Find MAC Address of the specified IP by sending an ARP request to the broadcast MAC Address
-    # (Ask the entire network what's the MAC address of the specified IP)
-
-
-    # Create Ethernet layer for broadcasting
-    etherLayer = scapy.Ether(dst = "ff:ff:ff:ff:ff:ff") # Ethernet layer packet has 3 parameters: destination MAC address, source MAC Address, type
-    # Create ARP layer
-    arpLayer = scapy.ARP(op = "who-has", pdst = ip)
-
-    # Create full packet
-    fullPacket = etherLayer/arpLayer
-
-    if showPacket:
-        print("Full packet sent: \n")
-        fullPacket.show()
-
-    # Get response from the request
-    try:
-        res = scapy.srp(fullPacket, timeout = 2, verbose = verbose)[0]
-
-        # Return MAC Address
-        return res[0][1].hwsrc
-
-    except:
-        print("Unable to get MAC Address for [{}]".format(ip))
-        return 0
 
 
 # Check if passed IP address is a valid IP address
@@ -353,6 +330,35 @@ def validateHost(IP):
     return isInMyNetwork(IP, mask)
 
 
+
+# Get MAC address from IP
+def getMAC(ip, verbose = False, showPacket = False):
+    # Find MAC Address of the specified IP by sending an ARP request to the broadcast MAC Address
+    # (Ask the entire network what's the MAC address of the specified IP)
+
+
+    # Create Ethernet layer for broadcasting
+    etherLayer = scapy.Ether(dst = "ff:ff:ff:ff:ff:ff") # Ethernet layer packet has 3 parameters: destination MAC address, source MAC Address, type
+    # Create ARP layer
+    arpLayer = scapy.ARP(op = "who-has", pdst = ip)
+
+    # Create full packet
+    fullPacket = etherLayer/arpLayer
+
+    if showPacket:
+        print("Full packet sent: \n")
+        fullPacket.show()
+
+    # Get response from the request
+    try:
+        res = scapy.srp(fullPacket, timeout = 2, verbose = verbose)[0]
+
+        # Return MAC Address
+        return res[0][1].hwsrc
+
+    except:
+        print("Unable to get MAC Address for [{}]".format(ip))
+        return 0
 
 def ARPSpoofer():
     asciiBanner = pyfiglet.figlet_format("ARP Spoofer")
@@ -839,6 +845,118 @@ def osDetection():
         time.sleep(1.5)
 
 
+def getWindowsSavedSsids():
+    # Returns a list of saved SSIDs in a Windows machine using netsh command
+    # get all saved profiles in the PC
+    output = subprocess.check_output("netsh wlan show profiles").decode()
+    ssids = []
+
+    profiles = re.findall(r"All User Profile\s(.*)", output)
+    
+    for profile in profiles:
+        # for each SSID, remove spaces and colon
+        ssid = profile.strip().strip(":").strip()
+        # add to the list
+        ssids.append(ssid)
+    
+    return ssids
+
+def print_windows_profile(profile):
+    """Prints a single profile on Windows"""
+    print(f"{profile.ssid:25}{profile.ciphers:15}{profile.key:50}")
+
+def getWindowsSavedWifiPasswords(verbose=True):
+    """Extracts saved Wi-Fi passwords saved in a Windows machine, this function extracts data using netsh
+    command in Windows
+    Args:
+        verbose (int, optional): whether to print saved profiles real-time. Defaults to 1.
+    Returns:
+        [list]: list of extracted profiles, a profile has the fields ["ssid", "ciphers", "key"]
+    """
+    ssids = getWindowsSavedSsids()
+    Profile = namedtuple("Profile", ["ssid", "ciphers", "key"])
+    profiles = []
+    for ssid in ssids:
+        ssid_details = subprocess.check_output(f"""netsh wlan show profile "{ssid}" key=clear""").decode()
+        # get the ciphers
+        ciphers = re.findall(r"Cipher\s(.*)", ssid_details)
+        # clear spaces and colon
+        ciphers = "/".join([c.strip().strip(":").strip() for c in ciphers])
+        # get the Wi-Fi password
+        key = re.findall(r"Key Content\s(.*)", ssid_details)
+        # clear spaces and colon
+        try:
+            key = key[0].strip().strip(":").strip()
+        except IndexError:
+            key = "None"
+        profile = Profile(ssid=ssid, ciphers=ciphers, key=key)
+        if verbose == True:
+            print_windows_profile(profile)
+        profiles.append(profile)
+    return profiles
+
+def printWindowsWifiPasswords(verbose):
+    print("SSID                     CIPHER(S)      KEY")
+    print("-"*50)
+    getWindowsSavedWifiPasswords(verbose)
+
+
+def print_linux_profile(profile):
+    """Prints a single profile on Linux"""
+    print(f"{str(profile.ssid):25}{str(profile.auth_alg):5}{str(profile.key_mgmt):10}{str(profile.psk):50}") 
+
+
+def getLinuxSavedWifiPasswords(verbose=1):   
+    """Extracts saved Wi-Fi passwords saved in a Linux machine, this function extracts data in the
+    `/etc/NetworkManager/system-connections/` directory
+    Args:
+        verbose (int, optional): whether to print saved profiles real-time. Defaults to 1.
+    Returns:
+        [list]: list of extracted profiles, a profile has the fields ["ssid", "auth-alg", "key-mgmt", "psk"]
+    """
+    network_connections_path = "/etc/NetworkManager/system-connections/"
+    fields = ["ssid", "auth-alg", "key-mgmt", "psk"]
+    Profile = namedtuple("Profile", [f.replace("-", "_") for f in fields])
+    profiles = []
+
+    for file in os.listdir(network_connections_path):
+        data = { k.replace("-", "_"): None for k in fields }
+        config = configparser.ConfigParser()
+        config.read(os.path.join(network_connections_path, file))
+        
+        for _, section in config.items():
+            for k, v in section.items():
+                if k in fields:
+                    data[k.replace("-", "_")] = v
+        
+        profile = Profile(**data)
+        
+        if verbose >= 1:
+            print_linux_profile(profile)
+        profiles.append(profile)
+    
+    return profiles
+
+def printLinuxWifiPasswords(verbose):
+    """Prints all extracted SSIDs along with Key (PSK) on Linux"""
+    print("SSID                     AUTH KEY-MGMT  PSK")
+    print("-"*50)
+    getLinuxSavedWifiPasswords(verbose)
+
+def getWifiPasswords(verbose):
+    """Prints all extracted SSIDs along with Key on Windows"""
+    clearTerminal()
+    asciiBanner = pyfiglet.figlet_format("Wi-fi Keys")
+    print(asciiBanner)
+    
+    os = getHostOS()
+    if os == "nt":
+        printWindowsWifiPasswords(verbose)
+    else:
+        printLinuxWifiPasswords(verbose)
+
+    waitForKeyStroke()
+
 # Display main menu
 def menu():
     asciiBanner = pyfiglet.figlet_format("MalarPY")
@@ -913,6 +1031,9 @@ def main(argv):
             
             if option == "OS Detection":
                 osDetection()
+
+            if option == "Get Wi-fi Passwords":
+                getWifiPasswords(True)
 
             if option == "Help":
                 help()
